@@ -7,28 +7,20 @@
 .DESCRIPTION
     Downloads the latest stable mpv Windows x86_64 release, installs uosc using
     its official installer, downloads thumbfast and delete_current_file, and
-    copies this repository's configuration files into portable_config.
+    downloads this script's own mpv.conf, input.conf, uosc.conf, and
+    thumbfast.conf from its GitHub repository into portable_config.
 
     This script does not update an existing installation.
     The target directory must either not exist or be empty.
 
-    Expected repository layout:
-        install.ps1
-        mpv.conf
-        input.conf
-        uosc.conf
-        thumbfast.conf
+    Fully self-contained: it can be run directly (.\install.ps1) or piped
+    straight from GitHub, e.g.:
+        irm https://raw.githubusercontent.com/DevBehnam/mpv-config/main/install.ps1 | iex
 #>
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-
-# Suppresses noisy built-in progress UI from cmdlets like Expand-Archive and
-# Invoke-RestMethod. All user-facing progress in this script is rendered
-# manually with Write-Host, so it is unaffected by this setting.
 $ProgressPreference = 'SilentlyContinue'
-
-$RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $DefaultInstallPath = Join-Path (Get-Location) 'mpv'
 
@@ -37,15 +29,22 @@ $UoscInstallerUrl = 'https://raw.githubusercontent.com/tomasklaen/uosc/HEAD/inst
 $DeleteScriptUrl = 'https://raw.githubusercontent.com/stax76/mpv-scripts/main/delete_current_file.lua'
 $ThumbfastScriptUrl = 'https://raw.githubusercontent.com/po5/thumbfast/master/thumbfast.lua'
 
-# A generic, non-identifying User-Agent. GitHub's API rejects requests with no
-# User-Agent at all, so we still send one, but it does not brand our traffic.
+# repository config files
+$ConfigRepoRawBase = 'https://raw.githubusercontent.com/DevBehnam/mpv-config/main'
+$MpvConfigUrl = "$ConfigRepoRawBase/mpv.conf"
+$InputConfigUrl = "$ConfigRepoRawBase/input.conf"
+$UoscConfigUrl = "$ConfigRepoRawBase/uosc.conf"
+$ThumbfastConfigUrl = "$ConfigRepoRawBase/thumbfast.conf"
+
 $UserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+
 
 # ------------------------------------------------------------------------
 # Console output helpers
 # ------------------------------------------------------------------------
 
-function Write-Header {
+function Write-Header
+{
     param([string]$Text)
 
     Write-Host ''
@@ -55,30 +54,46 @@ function Write-Header {
     Write-Host ''
 }
 
-function Write-Step {
+function Write-Step
+{
     param([string]$Text)
 
     Write-Host ''
     Write-Host "[$Text]" -ForegroundColor Cyan
 }
 
-function Write-Result {
+function Write-Result
+{
     param(
         [string]$Text,
         [ValidateSet('Success', 'Info', 'Warning')]
         [string]$Type = 'Success'
     )
 
-    $label = switch ($Type) {
-        'Success' { 'OK' }
-        'Info'    { 'i.' }
-        'Warning' { 'WARN' }
+    $label = switch ($Type)
+    {
+        'Success'
+        { 'OK'
+        }
+        'Info'
+        { 'i.'
+        }
+        'Warning'
+        { 'WARN'
+        }
     }
 
-    $color = switch ($Type) {
-        'Success' { 'Green' }
-        'Info'    { 'Gray' }
-        'Warning' { 'Yellow' }
+    $color = switch ($Type)
+    {
+        'Success'
+        { 'Green'
+        }
+        'Info'
+        { 'Gray'
+        }
+        'Warning'
+        { 'Yellow'
+        }
     }
 
     Write-Host "  " -NoNewline
@@ -86,7 +101,8 @@ function Write-Result {
     Write-Host "  $Text"
 }
 
-function Write-Failure {
+function Write-Failure
+{
     param([string]$Text)
 
     Write-Host "  " -NoNewline
@@ -94,21 +110,29 @@ function Write-Failure {
     Write-Host " $Text"
 }
 
+
 # ------------------------------------------------------------------------
-# In-place progress bar (bar + percent + size + speed), independent of
-# $ProgressPreference since it is plain Write-Host, not Write-Progress.
+# In-place progress bar (bar + percent + size + speed)
 # ------------------------------------------------------------------------
 
-function Format-ByteSize {
+function Format-ByteSize
+{
     param([double]$Bytes)
 
-    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
-    if ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
-    if ($Bytes -ge 1KB) { return "{0:N1} KB" -f ($Bytes / 1KB) }
+    if ($Bytes -ge 1GB)
+    { return "{0:N2} GB" -f ($Bytes / 1GB)
+    }
+    if ($Bytes -ge 1MB)
+    { return "{0:N2} MB" -f ($Bytes / 1MB)
+    }
+    if ($Bytes -ge 1KB)
+    { return "{0:N1} KB" -f ($Bytes / 1KB)
+    }
     return "$([math]::Round($Bytes)) B"
 }
 
-function Write-InlineProgress {
+function Write-InlineProgress
+{
     param(
         [Parameter(Mandatory)]
         [string]$Label,
@@ -122,42 +146,48 @@ function Write-InlineProgress {
     )
 
     $fraction = 0.0
-    if ($Total -gt 0) {
+    if ($Total -gt 0)
+    {
         $fraction = [math]::Min(1.0, $Current / $Total)
     }
 
     $filled = [int][math]::Floor($fraction * $Width)
-    if ($filled -gt $Width) { $filled = $Width }
+    if ($filled -gt $Width)
+    { $filled = $Width
+    }
     $bar = ('#' * $filled).PadRight($Width, ' ')
 
-    $speedText = if ($BytesPerSecond -gt 0) { "$(Format-ByteSize $BytesPerSecond)/s" } else { '--/s' }
+    $speedText = if ($BytesPerSecond -gt 0)
+    { "$(Format-ByteSize $BytesPerSecond)/s"
+    } else
+    { '--/s'
+    }
 
-    if ($Total -gt 0) {
+    if ($Total -gt 0)
+    {
         $percentText = "{0,3:N0}%" -f ($fraction * 100)
         $sizeText = "$(Format-ByteSize $Current) / $(Format-ByteSize $Total)"
         $line = "  $Label [$bar] $percentText  $sizeText  $speedText"
-    }
-    else {
+    } else
+    {
         $line = "  $Label [$bar]  $(Format-ByteSize $Current)  $speedText"
     }
 
     Write-Host "`r$($line.PadRight(100))" -NoNewline
 }
 
-function Complete-InlineProgress {
+function Complete-InlineProgress
+{
     Write-Host ''
 }
 
+
 # ------------------------------------------------------------------------
-# Robust retry helpers.
-#
-# Slow or flaky connections should not kill the whole install, and a
-# transient "file in use" error while cleaning up a temp folder (typically
-# antivirus briefly locking a just-extracted .bat/.exe) should never be
-# treated as a fatal error either.
+# Retry helpers.
 # ------------------------------------------------------------------------
 
-function Invoke-WithRetry {
+function Invoke-WithRetry
+{
     param(
         [Parameter(Mandatory)]
         [scriptblock]$Action,
@@ -167,12 +197,15 @@ function Invoke-WithRetry {
         [string]$DisplayName = 'operation'
     )
 
-    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        try {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++)
+    {
+        try
+        {
             return & $Action
-        }
-        catch {
-            if ($attempt -ge $MaxAttempts) {
+        } catch
+        {
+            if ($attempt -ge $MaxAttempts)
+            {
                 throw
             }
 
@@ -182,7 +215,8 @@ function Invoke-WithRetry {
     }
 }
 
-function Remove-ItemRobust {
+function Remove-ItemRobust
+{
     param(
         [Parameter(Mandatory)]
         [string]$Path,
@@ -191,17 +225,21 @@ function Remove-ItemRobust {
         [int]$MaxAttempts = 6
     )
 
-    if (-not (Test-Path -LiteralPath $Path)) {
+    if (-not (Test-Path -LiteralPath $Path))
+    {
         return
     }
 
-    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        try {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++)
+    {
+        try
+        {
             Remove-Item -LiteralPath $Path -Recurse:$Recurse -Force -ErrorAction Stop
             return
-        }
-        catch {
-            if ($attempt -eq $MaxAttempts) {
+        } catch
+        {
+            if ($attempt -eq $MaxAttempts)
+            {
                 Write-Result "Could not remove temporary file(s): $Path (still in use, likely by antivirus). You can delete it manually later." -Type Warning
                 return
             }
@@ -211,11 +249,13 @@ function Remove-ItemRobust {
     }
 }
 
+
 # ------------------------------------------------------------------------
 # Install path handling
 # ------------------------------------------------------------------------
 
-function Get-InstallPath {
+function Get-InstallPath
+{
     Write-Host "Installation directory" -ForegroundColor White
     Write-Host "Press Enter to use the default (current directory):"
     Write-Host "  $DefaultInstallPath" -ForegroundColor DarkGray
@@ -223,47 +263,43 @@ function Get-InstallPath {
 
     $inputPath = Read-Host 'Path'
 
-    if ([string]::IsNullOrWhiteSpace($inputPath)) {
+    if ([string]::IsNullOrWhiteSpace($inputPath))
+    {
         return $DefaultInstallPath
     }
 
     return [Environment]::ExpandEnvironmentVariables($inputPath.Trim().Trim('"'))
 }
 
-function Confirm-InstallPath {
+function Confirm-InstallPath
+{
     param([string]$Path)
 
-    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+    if (Test-Path -LiteralPath $Path -PathType Leaf)
+    {
         throw "The installation path points to a file: $Path"
     }
 
-    if (-not (Test-Path -LiteralPath $Path)) {
+    if (-not (Test-Path -LiteralPath $Path))
+    {
         return
     }
 
     $children = @(Get-ChildItem -LiteralPath $Path -Force)
 
-    if ($children.Count -gt 0) {
+    if ($children.Count -gt 0)
+    {
         throw "The installation directory already exists and is not empty. This installer does not update existing installations: $Path"
     }
 }
 
+
 # ------------------------------------------------------------------------
 # Downloading
-#
-# Invoke-Download is used for every remote file (the mpv archive, the uosc
-# installer script, and the two .lua scripts). It streams to disk with an
-# in-place progress bar, and is resilient on slow/unstable connections:
-#
-#   - The HttpClient-wide timeout is disabled (default is only 100 seconds,
-#     which would abort a big archive on a slow line even though it is
-#     downloading fine).
-#   - A sliding per-read "stall" timeout aborts and retries only if no bytes
-#     arrive for a while, rather than hanging forever on a dead connection.
-#   - The whole download is retried with backoff a few times on failure.
 # ------------------------------------------------------------------------
 
-function Invoke-Download {
+function Invoke-Download
+{
     param(
         [Parameter(Mandatory)]
         [string]$Uri,
@@ -276,19 +312,22 @@ function Invoke-Download {
         [int]$StallTimeoutSeconds = 30
     )
 
-    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        try {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++)
+    {
+        try
+        {
             Invoke-DownloadAttempt `
                 -Uri $Uri `
                 -Destination $Destination `
                 -DisplayName $DisplayName `
                 -StallTimeoutSeconds $StallTimeoutSeconds
             return
-        }
-        catch {
+        } catch
+        {
             Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
 
-            if ($attempt -ge $MaxAttempts) {
+            if ($attempt -ge $MaxAttempts)
+            {
                 throw "Failed to download $DisplayName after $MaxAttempts attempts: $($_.Exception.Message)"
             }
 
@@ -300,7 +339,8 @@ function Invoke-Download {
     }
 }
 
-function Invoke-DownloadAttempt {
+function Invoke-DownloadAttempt
+{
     param(
         [Parameter(Mandatory)]
         [string]$Uri,
@@ -319,7 +359,8 @@ function Invoke-DownloadAttempt {
 
     $cts = [System.Threading.CancellationTokenSource]::new()
 
-    try {
+    try
+    {
         # Give the initial request (headers) a bounded amount of time; the
         # per-chunk stall timeout below takes over once the body starts.
         $cts.CancelAfter([TimeSpan]::FromSeconds($StallTimeoutSeconds))
@@ -333,12 +374,15 @@ function Invoke-DownloadAttempt {
         $response.EnsureSuccessStatusCode() | Out-Null
 
         $total = $response.Content.Headers.ContentLength
-        if ($null -eq $total) { $total = 0 }
+        if ($null -eq $total)
+        { $total = 0
+        }
 
         $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
         $fileStream = [System.IO.File]::Create($Destination)
 
-        try {
+        try
+        {
             $buffer = [byte[]]::new(256KB)
             $downloaded = 0L
 
@@ -350,7 +394,8 @@ function Invoke-DownloadAttempt {
 
             Write-InlineProgress -Label $DisplayName -Current 0 -Total $total -BytesPerSecond 0
 
-            while ($true) {
+            while ($true)
+            {
                 # Reset the sliding stall timer on every read; this only
                 # fires if no data at all arrives within the window, not
                 # because the overall download is merely slow.
@@ -358,20 +403,24 @@ function Invoke-DownloadAttempt {
 
                 $read = $stream.ReadAsync($buffer, 0, $buffer.Length, $cts.Token).GetAwaiter().GetResult()
 
-                if ($read -le 0) { break }
+                if ($read -le 0)
+                { break
+                }
 
                 $fileStream.Write($buffer, 0, $read)
                 $downloaded += $read
 
                 $elapsed = $stopwatch.Elapsed.TotalSeconds
 
-                if (($elapsed - $lastSampleSeconds) -ge 0.5) {
+                if (($elapsed - $lastSampleSeconds) -ge 0.5)
+                {
                     $speed = ($downloaded - $lastSampleBytes) / [math]::Max(0.001, ($elapsed - $lastSampleSeconds))
                     $lastSampleSeconds = $elapsed
                     $lastSampleBytes = $downloaded
                 }
 
-                if (($elapsed - $lastDrawSeconds) -ge 0.1) {
+                if (($elapsed - $lastDrawSeconds) -ge 0.1)
+                {
                     Write-InlineProgress -Label $DisplayName -Current $downloaded -Total $total -BytesPerSecond $speed
                     $lastDrawSeconds = $elapsed
                 }
@@ -380,14 +429,14 @@ function Invoke-DownloadAttempt {
             $finalTotal = [math]::Max($total, $downloaded)
             Write-InlineProgress -Label $DisplayName -Current $downloaded -Total $finalTotal -BytesPerSecond $speed
             Complete-InlineProgress
-        }
-        finally {
+        } finally
+        {
             $fileStream.Dispose()
             $stream.Dispose()
             $response.Dispose()
         }
-    }
-    finally {
+    } finally
+    {
         $cts.Dispose()
         $client.Dispose()
         $handler.Dispose()
@@ -398,7 +447,8 @@ function Invoke-DownloadAttempt {
 # mpv release resolution and installation
 # ------------------------------------------------------------------------
 
-function Get-LatestMpvRelease {
+function Get-LatestMpvRelease
+{
     Write-Host '  Checking latest mpv release...' -ForegroundColor Gray
 
     $response = Invoke-WithRetry -DisplayName 'Checking mpv release' -Action {
@@ -407,14 +457,16 @@ function Get-LatestMpvRelease {
 
     $version = $response.tag_name
 
-    if ($version -notmatch '^v\d+\.\d+\.\d+$') {
+    if ($version -notmatch '^v\d+\.\d+\.\d+$')
+    {
         throw "Unexpected mpv release tag: $version"
     }
 
     $assetName = "mpv-$version-x86_64-pc-windows-msvc.zip"
     $asset = @($response.assets | Where-Object { $_.name -eq $assetName })[0]
 
-    if ($null -eq $asset) {
+    if ($null -eq $asset)
+    {
         throw "Could not find the expected Windows asset '$assetName'."
     }
 
@@ -425,7 +477,8 @@ function Get-LatestMpvRelease {
     }
 }
 
-function Expand-MpvArchive {
+function Expand-MpvArchive
+{
     param(
         [string]$ArchivePath,
         [string]$Destination
@@ -434,36 +487,42 @@ function Expand-MpvArchive {
     $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "mpv-install-$([guid]::NewGuid())"
     New-Item -ItemType Directory -Path $tempDirectory -Force | Out-Null
 
-    try {
+    try
+    {
         Expand-Archive -LiteralPath $ArchivePath -DestinationPath $tempDirectory -Force
 
         # Current MSVC releases put the mpv files at the archive root.
         # This also handles a single top-level directory defensively.
         $entries = @(Get-ChildItem -LiteralPath $tempDirectory -Force)
 
-        if ($entries.Count -eq 1 -and $entries[0].PSIsContainer) {
+        if ($entries.Count -eq 1 -and $entries[0].PSIsContainer)
+        {
             $sourceRoot = $entries[0].FullName
-        }
-        else {
+        } else
+        {
             $sourceRoot = $tempDirectory
         }
 
         $files = @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File)
         $totalFiles = $files.Count
         $totalBytes = ($files | Measure-Object -Property Length -Sum).Sum
-        if (-not $totalBytes) { $totalBytes = 0 }
+        if (-not $totalBytes)
+        { $totalBytes = 0
+        }
 
         $copiedBytes = 0L
         $copiedFiles = 0
         $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         $lastDrawSeconds = -1.0
 
-        foreach ($file in $files) {
+        foreach ($file in $files)
+        {
             $relative = $file.FullName.Substring($sourceRoot.Length).TrimStart('\', '/')
             $destinationPath = Join-Path $Destination $relative
             $destinationDirectory = Split-Path -Parent $destinationPath
 
-            if (-not (Test-Path -LiteralPath $destinationDirectory)) {
+            if (-not (Test-Path -LiteralPath $destinationDirectory))
+            {
                 New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
             }
 
@@ -475,21 +534,27 @@ function Expand-MpvArchive {
             $elapsed = $stopwatch.Elapsed.TotalSeconds
             $isLast = $copiedFiles -eq $totalFiles
 
-            if (($elapsed - $lastDrawSeconds) -ge 0.1 -or $isLast) {
-                $speed = if ($elapsed -gt 0) { $copiedBytes / $elapsed } else { 0 }
+            if (($elapsed - $lastDrawSeconds) -ge 0.1 -or $isLast)
+            {
+                $speed = if ($elapsed -gt 0)
+                { $copiedBytes / $elapsed
+                } else
+                { 0
+                }
                 Write-InlineProgress -Label "Installing mpv ($copiedFiles/$totalFiles files)" -Current $copiedBytes -Total $totalBytes -BytesPerSecond $speed
                 $lastDrawSeconds = $elapsed
             }
         }
 
         Complete-InlineProgress
-    }
-    finally {
+    } finally
+    {
         Remove-ItemRobust -Path $tempDirectory -Recurse
     }
 }
 
-function Invoke-UoscInstaller {
+function Invoke-UoscInstaller
+{
     param([string]$InstallDirectory)
 
     # The official installer detects portable_config when run from an mpv
@@ -497,7 +562,8 @@ function Invoke-UoscInstaller {
     # Exit 1 on failure cannot terminate this installer itself.
     $installerPath = Join-Path $env:TEMP "uosc-installer-$([guid]::NewGuid()).ps1"
 
-    try {
+    try
+    {
         Invoke-Download `
             -Uri $UoscInstallerUrl `
             -Destination $installerPath `
@@ -505,59 +571,32 @@ function Invoke-UoscInstaller {
 
         Push-Location -LiteralPath $InstallDirectory
 
-        try {
+        try
+        {
             & pwsh -NoProfile -ExecutionPolicy Bypass -File $installerPath
 
-            if ($LASTEXITCODE -ne 0) {
+            if ($LASTEXITCODE -ne 0)
+            {
                 throw "The official uosc installer exited with code $LASTEXITCODE."
             }
-        }
-        finally {
+        } finally
+        {
             Pop-Location
         }
-    }
-    finally {
+    } finally
+    {
         Remove-ItemRobust -Path $installerPath
     }
 }
 
-function Copy-RepoFile {
-    param(
-        [Parameter(Mandatory)]
-        [string]$Source,
 
-        [Parameter(Mandatory)]
-        [string]$Destination
-    )
-
-    $destinationDirectory = Split-Path -Parent $Destination
-
-    if (-not (Test-Path -LiteralPath $destinationDirectory)) {
-        New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
-    }
-
-    # These are small text config files; a byte-level progress bar would add
-    # noise without adding information, so they are copied directly.
-    [System.IO.File]::Copy($Source, $Destination, $true)
-}
-
-function Assert-RepositoryFile {
-    param([string]$Name)
-
-    $path = Join-Path $RepoRoot $Name
-
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        throw "Required repository file was not found: $Name"
-    }
-
-    return $path
-}
 
 # ------------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------------
 
-try {
+try
+{
     Write-Header 'MPV CONFIG INSTALLER'
 
     Write-Host 'This installer creates a new portable mpv installation.'
@@ -575,11 +614,12 @@ try {
 
     Write-Step 'Preparing installation directory'
 
-    if (-not (Test-Path -LiteralPath $InstallDirectory)) {
+    if (-not (Test-Path -LiteralPath $InstallDirectory))
+    {
         New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
         Write-Result "Created $InstallDirectory"
-    }
-    else {
+    } else
+    {
         Write-Result 'Installation directory already exists and is empty.'
     }
 
@@ -636,8 +676,6 @@ try {
 
     Write-Result 'Installed delete_current_file.lua'
 
-    # thumbfast.lua is the actual script; its configuration (thumbfast.conf)
-    # comes from this repository and is installed separately below.
     $thumbfastScript = Join-Path $ScriptsDirectory 'thumbfast.lua'
     Invoke-Download `
         -Uri $ThumbfastScriptUrl `
@@ -648,21 +686,28 @@ try {
 
     Write-Step 'Installing configuration'
 
-    $mpvConfig = Assert-RepositoryFile 'mpv.conf'
-    $inputConfig = Assert-RepositoryFile 'input.conf'
-    $uoscConfig = Assert-RepositoryFile 'uosc.conf'
-    $thumbfastConfig = Assert-RepositoryFile 'thumbfast.conf'
-
-    Copy-RepoFile -Source $mpvConfig -Destination (Join-Path $PortableConfig 'mpv.conf')
+    Invoke-Download `
+        -Uri $MpvConfigUrl `
+        -Destination (Join-Path $PortableConfig 'mpv.conf') `
+        -DisplayName 'mpv.conf'
     Write-Result 'Installed mpv.conf'
 
-    Copy-RepoFile -Source $inputConfig -Destination (Join-Path $PortableConfig 'input.conf')
+    Invoke-Download `
+        -Uri $InputConfigUrl `
+        -Destination (Join-Path $PortableConfig 'input.conf') `
+        -DisplayName 'input.conf'
     Write-Result 'Installed input.conf'
 
-    Copy-RepoFile -Source $uoscConfig -Destination (Join-Path $ScriptOptsDirectory 'uosc.conf')
+    Invoke-Download `
+        -Uri $UoscConfigUrl `
+        -Destination (Join-Path $ScriptOptsDirectory 'uosc.conf') `
+        -DisplayName 'uosc.conf'
     Write-Result 'Installed uosc.conf'
 
-    Copy-RepoFile -Source $thumbfastConfig -Destination (Join-Path $ScriptOptsDirectory 'thumbfast.conf')
+    Invoke-Download `
+        -Uri $ThumbfastConfigUrl `
+        -Destination (Join-Path $ScriptOptsDirectory 'thumbfast.conf') `
+        -DisplayName 'thumbfast.conf'
     Write-Result 'Installed thumbfast.conf'
 
     Write-Header 'INSTALLATION COMPLETE'
@@ -678,10 +723,9 @@ try {
     Write-Host 'thumbfast installed' -ForegroundColor Gray
     Write-Host 'config    installed' -ForegroundColor Gray
     Write-Host ''
-
-    Read-Host 'Press Enter to exit'
-}
-catch {
+    exit 0
+} catch
+{
     Write-Host ''
     Write-Host ('=' * 60) -ForegroundColor Red
     Write-Host '  INSTALLATION FAILED' -ForegroundColor Red
