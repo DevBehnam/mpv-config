@@ -723,7 +723,6 @@ try
     Write-Host 'thumbfast installed' -ForegroundColor Gray
     Write-Host 'config    installed' -ForegroundColor Gray
     Write-Host ''
-    exit 0
 } catch
 {
     Write-Host ''
@@ -735,5 +734,4 @@ try
     Write-Host ''
     Write-Host 'No automatic cleanup was performed so you can inspect the installation directory.' -ForegroundColor Yellow
     Write-Host ''
-    exit 1
 }
