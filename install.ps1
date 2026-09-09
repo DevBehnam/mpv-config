@@ -28,6 +28,9 @@ $MpvApiUrl = 'https://api.github.com/repos/mpv-player/mpv/releases/latest'
 $UoscInstallerUrl = 'https://raw.githubusercontent.com/tomasklaen/uosc/HEAD/installers/windows.ps1'
 $DeleteScriptUrl = 'https://raw.githubusercontent.com/stax76/mpv-scripts/main/delete_current_file.lua'
 $ThumbfastScriptUrl = 'https://raw.githubusercontent.com/po5/thumbfast/master/thumbfast.lua'
+$KeybindVisualizerScriptUrl = 'https://raw.githubusercontent.com/v-amorim/moonlight-mpv/refs/heads/main/portable_config/scripts/keybind-visualizer.lua'
+$KeybindVisualizerJsonUrl = 'https://raw.githubusercontent.com/v-amorim/moonlight-mpv/refs/heads/main/portable_config/script-opts/keybind-visualizer-layouts.json'
+$SubSeekScriptURL = 'https://raw.githubusercontent.com/v-amorim/moonlight-mpv/refs/heads/main/portable_config/scripts/sub-seek.lua'
 
 # repository config files
 $ConfigRepoRawBase = 'https://raw.githubusercontent.com/DevBehnam/mpv-config/main'
@@ -35,6 +38,7 @@ $MpvConfigUrl = "$ConfigRepoRawBase/mpv.conf"
 $InputConfigUrl = "$ConfigRepoRawBase/input.conf"
 $UoscConfigUrl = "$ConfigRepoRawBase/uosc.conf"
 $ThumbfastConfigUrl = "$ConfigRepoRawBase/thumbfast.conf"
+$KeybindVisualizerConfigUrl = "$ConfigRepoRawBase/keybind-visualizer.conf"
 
 $UserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
 
@@ -684,6 +688,22 @@ try
 
     Write-Result 'Installed thumbfast.lua'
 
+    $keybindVisualizerScript = Join-Path $ScriptsDirectory 'keybind-visualizer.lua'
+    Invoke-Download `
+        -Uri $KeybindVisualizerScriptUrl `
+        -Destination $keybindVisualizerScript `
+        -DisplayName 'keybind-visualizer.lua'
+
+    Write-Result 'Installed keybind-visualizer.lua'
+
+    $SubSeekScript = Join-Path $ScriptsDirectory 'sub-seek.lua'
+    Invoke-Download `
+        -Uri $SubSeekScriptURL `
+        -Destination $SubSeekScript `
+        -DisplayName 'sub-seek.lua'
+
+    Write-Result 'Installed sub-seek.lua'
+
     Write-Step 'Installing configuration'
 
     Invoke-Download `
@@ -709,6 +729,22 @@ try
         -Destination (Join-Path $ScriptOptsDirectory 'thumbfast.conf') `
         -DisplayName 'thumbfast.conf'
     Write-Result 'Installed thumbfast.conf'
+
+    $keybindVisualizerConfig = Join-Path $PortableConfig 'keybind-visualizer.conf'
+    Invoke-Download `
+        -Uri $KeybindVisualizerConfigUrl `
+        -Destination $keybindVisualizerConfig `
+        -DisplayName 'keybind-visualizer.conf'
+
+    Write-Result 'keybind-visualizer-layouts.json'
+
+    $keybindVisualizerJson = Join-Path $PortableConfig 'keybind-visualizer-layouts.json'
+    Invoke-Download `
+        -Uri $KeybindVisualizerJsonUrl `
+        -Destination $keybindVisualizerJson `
+        -DisplayName 'keybind-visualizer-layouts.json'
+
+    Write-Result 'keybind-visualizer-layouts.json'
 
     Write-Header 'INSTALLATION COMPLETE'
 
