@@ -31,6 +31,8 @@ $ThumbfastScriptUrl = 'https://raw.githubusercontent.com/po5/thumbfast/master/th
 $KeybindVisualizerScriptUrl = 'https://raw.githubusercontent.com/v-amorim/moonlight-mpv/refs/heads/main/portable_config/scripts/keybind-visualizer.lua'
 $KeybindVisualizerJsonUrl = 'https://raw.githubusercontent.com/v-amorim/moonlight-mpv/refs/heads/main/portable_config/script-opts/keybind-visualizer-layouts.json'
 $SubSeekScriptURL = 'https://raw.githubusercontent.com/v-amorim/moonlight-mpv/refs/heads/main/portable_config/scripts/sub-seek.lua'
+$YtdlAutoFormatScriptURL = 'https://raw.githubusercontent.com/Samillion/mpv-ytdlautoformat/refs/heads/master/ytdlautoformat.lua'
+$YtSubScriptUrl = 'https://raw.githubusercontent.com/Idlusen/mpv-ytsub/refs/heads/main/ytsub.lua'
 
 # repository config files
 $ConfigRepoRawBase = 'https://raw.githubusercontent.com/DevBehnam/mpv-config/main'
@@ -39,6 +41,9 @@ $InputConfigUrl = "$ConfigRepoRawBase/input.conf"
 $UoscConfigUrl = "$ConfigRepoRawBase/uosc.conf"
 $ThumbfastConfigUrl = "$ConfigRepoRawBase/thumbfast.conf"
 $KeybindVisualizerConfigUrl = "$ConfigRepoRawBase/keybind-visualizer.conf"
+$YtdlAutoFormatConfigURL = "$ConfigRepoRawBase/ytdlautoformat.conf"
+$YtSubConfigUrl = "$ConfigRepoRawBase/ytsub.conf"
+
 
 $UserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
 
@@ -677,7 +682,6 @@ try
         -Uri $DeleteScriptUrl `
         -Destination $deleteScript `
         -DisplayName 'delete_current_file.lua'
-
     Write-Result 'Installed delete_current_file.lua'
 
     $thumbfastScript = Join-Path $ScriptsDirectory 'thumbfast.lua'
@@ -685,7 +689,6 @@ try
         -Uri $ThumbfastScriptUrl `
         -Destination $thumbfastScript `
         -DisplayName 'thumbfast.lua'
-
     Write-Result 'Installed thumbfast.lua'
 
     $keybindVisualizerScript = Join-Path $ScriptsDirectory 'keybind-visualizer.lua'
@@ -693,7 +696,6 @@ try
         -Uri $KeybindVisualizerScriptUrl `
         -Destination $keybindVisualizerScript `
         -DisplayName 'keybind-visualizer.lua'
-
     Write-Result 'Installed keybind-visualizer.lua'
 
     $SubSeekScript = Join-Path $ScriptsDirectory 'sub-seek.lua'
@@ -701,8 +703,21 @@ try
         -Uri $SubSeekScriptURL `
         -Destination $SubSeekScript `
         -DisplayName 'sub-seek.lua'
-
     Write-Result 'Installed sub-seek.lua'
+
+    $YtdlAutoFormatScript = Join-Path $ScriptsDirectory 'ytdlautoformat.lua'
+    Invoke-Download `
+        -Uri $YtdlAutoFormatScriptURL `
+        -Destination $YtdlAutoFormatScript `
+        -DisplayName 'ytdlautoformat.lua'
+    Write-Result 'Installed ytdlautoformat.lua'
+
+    $YtSubScript = Join-Path $ScriptsDirectory 'ytsub.lua'
+    Invoke-Download `
+        -Uri $YtSubScriptUrl `
+        -Destination $YtSubScript `
+        -DisplayName 'ytsub.lua'
+    Write-Result 'Installed ytsub.lua'
 
     Write-Step 'Installing configuration'
 
@@ -730,21 +745,33 @@ try
         -DisplayName 'thumbfast.conf'
     Write-Result 'Installed thumbfast.conf'
 
-    $keybindVisualizerConfig = Join-Path $PortableConfig 'keybind-visualizer.conf'
+    $keybindVisualizerConfig = Join-Path $ScriptOptsDirectory 'keybind-visualizer.conf'
     Invoke-Download `
         -Uri $KeybindVisualizerConfigUrl `
         -Destination $keybindVisualizerConfig `
         -DisplayName 'keybind-visualizer.conf'
+    Write-Result 'Installed keybind-visualizer.conf'
 
-    Write-Result 'keybind-visualizer-layouts.json'
-
-    $keybindVisualizerJson = Join-Path $PortableConfig 'keybind-visualizer-layouts.json'
+    $keybindVisualizerJson = Join-Path $ScriptOptsDirectory 'keybind-visualizer-layouts.json'
     Invoke-Download `
         -Uri $KeybindVisualizerJsonUrl `
         -Destination $keybindVisualizerJson `
         -DisplayName 'keybind-visualizer-layouts.json'
+    Write-Result 'Installed keybind-visualizer-layouts.json'
 
-    Write-Result 'keybind-visualizer-layouts.json'
+    $YtdlAutoFormatConfig = Join-Path $ScriptOptsDirectory 'ytdlautoformat.conf'
+    Invoke-Download `
+        -Uri $YtdlAutoFormatConfigURL `
+        -Destination $YtdlAutoFormatConfig `
+        -DisplayName 'ytdlautoformat.conf'
+    Write-Result 'Installed ytdlautoformat.conf'
+
+    $YtSubConfig = Join-Path $ScriptOptsDirectory 'ytsub.conf'
+    Invoke-Download `
+        -Uri $YtSubConfigUrl `
+        -Destination $YtSubConfig `
+        -DisplayName 'ytsub.conf'
+    Write-Result 'Installed ytsub.conf'
 
     Write-Header 'INSTALLATION COMPLETE'
 
