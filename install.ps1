@@ -5,17 +5,12 @@
     Installs the mpv configuration and its required third-party components.
 
 .DESCRIPTION
-    Downloads the latest stable mpv Windows x86_64 release, installs uosc using
-    its official installer, downloads thumbfast and delete_current_file, and
-    downloads this script's own mpv.conf, input.conf, uosc.conf, and
-    thumbfast.conf from its GitHub repository into portable_config.
+    Downloads the latest stable mpv Windows x86_64 release, downloads
+    the needed scripts from their source uses them with their config
+    file from this repository
 
-    This script does not update an existing installation.
+    This script does not update an existing installation yet.
     The target directory must either not exist or be empty.
-
-    Fully self-contained: it can be run directly (.\install.ps1) or piped
-    straight from GitHub, e.g.:
-        irm https://raw.githubusercontent.com/DevBehnam/mpv-config/main/install.ps1 | iex
 #>
 
 Set-StrictMode -Version Latest
