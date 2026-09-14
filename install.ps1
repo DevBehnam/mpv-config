@@ -2,16 +2,47 @@
 
 <#
 .SYNOPSIS
-    Installs the mpv configuration and its required third-party components.
+    Installs or updates the mpv configuration and its required third-party
+    components.
 
 .DESCRIPTION
     Downloads the latest stable mpv Windows x86_64 release, downloads
-    the needed scripts from their source uses them with their config
+    the needed scripts from their source and uses them with their config
     file from this repository
 
-    This script does not update an existing installation yet.
-    The target directory must either not exist or be empty.
+    Running the script with no arguments installs fresh into an empty/
+    non-existent directory, or replaces every component in an existing one.
+    Use -Only to update just one or more components instead:
+
+        -Only Mpv      re-downloads and replaces the mpv binary only
+        -Only Scripts  re-runs the uosc installer and re-downloads all
+                       third-party Lua scripts (and their non-repo data
+                       files, e.g. keybind-visualizer-layouts.json)
+        -Only Config   re-downloads this repository's own config files
+
+    Every run always fetches the latest version of whatever it touches;
+    nothing is version-checked or skipped, so re-running the same -Only
+    value is always safe and always current.
+
+.EXAMPLE
+    .\install.ps1
+    Installs fresh, or replaces every component in an existing install.
+
+.EXAMPLE
+    .\install.ps1 -Only Scripts,Config
+    Refreshes the third-party scripts and this repo's config files,
+    leaving the existing mpv binary untouched.
+
+.EXAMPLE
+    # Piped execution (irm | iex) does not support named parameters
+    # directly. To pass -Only when running straight from GitHub, use:
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/DevBehnam/mpv-config/main/install.ps1))) -Only Mpv
 #>
+
+param(
+    [ValidateSet('Mpv', 'Scripts', 'Config')]
+    [string[]]$Only = @('Mpv', 'Scripts', 'Config')
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -19,6 +50,7 @@ $ProgressPreference = 'SilentlyContinue'
 
 $DefaultInstallPath = Join-Path (Get-Location) 'mpv'
 
+# ThirdParty Resources
 $MpvApiUrl = 'https://api.github.com/repos/mpv-player/mpv/releases/latest'
 $UoscInstallerUrl = 'https://raw.githubusercontent.com/tomasklaen/uosc/HEAD/installers/windows.ps1'
 $DeleteScriptUrl = 'https://raw.githubusercontent.com/stax76/mpv-scripts/main/delete_current_file.lua'
@@ -29,7 +61,7 @@ $SubSeekScriptURL = 'https://raw.githubusercontent.com/v-amorim/moonlight-mpv/re
 $YtdlAutoFormatScriptURL = 'https://raw.githubusercontent.com/Samillion/mpv-ytdlautoformat/refs/heads/master/ytdlautoformat.lua'
 $YtSubScriptUrl = 'https://raw.githubusercontent.com/Idlusen/mpv-ytsub/refs/heads/main/ytsub.lua'
 
-# repository config files
+# Repository's config files,
 $ConfigRepoRawBase = 'https://raw.githubusercontent.com/DevBehnam/mpv-config/main'
 $MpvConfigUrl = "$ConfigRepoRawBase/mpv.conf"
 $InputConfigUrl = "$ConfigRepoRawBase/input.conf"
@@ -40,6 +72,7 @@ $YtdlAutoFormatConfigURL = "$ConfigRepoRawBase/ytdlautoformat.conf"
 $YtSubConfigUrl = "$ConfigRepoRawBase/ytsub.conf"
 
 
+# A generic User-Agent.
 $UserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
 
 
@@ -47,8 +80,7 @@ $UserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
 # Console output helpers
 # ------------------------------------------------------------------------
 
-function Write-Header
-{
+function Write-Header {
     param([string]$Text)
 
     Write-Host ''
@@ -58,46 +90,30 @@ function Write-Header
     Write-Host ''
 }
 
-function Write-Step
-{
+function Write-Step {
     param([string]$Text)
 
     Write-Host ''
     Write-Host "[$Text]" -ForegroundColor Cyan
 }
 
-function Write-Result
-{
+function Write-Result {
     param(
         [string]$Text,
         [ValidateSet('Success', 'Info', 'Warning')]
         [string]$Type = 'Success'
     )
 
-    $label = switch ($Type)
-    {
-        'Success'
-        { 'OK'
-        }
-        'Info'
-        { 'i.'
-        }
-        'Warning'
-        { 'WARN'
-        }
+    $label = switch ($Type) {
+        'Success' { 'OK' }
+        'Info' { 'i.' }
+        'Warning' { 'WARN' }
     }
 
-    $color = switch ($Type)
-    {
-        'Success'
-        { 'Green'
-        }
-        'Info'
-        { 'Gray'
-        }
-        'Warning'
-        { 'Yellow'
-        }
+    $color = switch ($Type) {
+        'Success' { 'Green' }
+        'Info' { 'Gray' }
+        'Warning' { 'Yellow' }
     }
 
     Write-Host "  " -NoNewline
@@ -105,8 +121,7 @@ function Write-Result
     Write-Host "  $Text"
 }
 
-function Write-Failure
-{
+function Write-Failure {
     param([string]$Text)
 
     Write-Host "  " -NoNewline
@@ -116,27 +131,20 @@ function Write-Failure
 
 
 # ------------------------------------------------------------------------
-# In-place progress bar (bar + percent + size + speed)
+# In-place progress bar (bar + percent + size + speed), independent of
+# $ProgressPreference.
 # ------------------------------------------------------------------------
 
-function Format-ByteSize
-{
+function Format-ByteSize {
     param([double]$Bytes)
 
-    if ($Bytes -ge 1GB)
-    { return "{0:N2} GB" -f ($Bytes / 1GB)
-    }
-    if ($Bytes -ge 1MB)
-    { return "{0:N2} MB" -f ($Bytes / 1MB)
-    }
-    if ($Bytes -ge 1KB)
-    { return "{0:N1} KB" -f ($Bytes / 1KB)
-    }
+    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
+    if ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
+    if ($Bytes -ge 1KB) { return "{0:N1} KB" -f ($Bytes / 1KB) }
     return "$([math]::Round($Bytes)) B"
 }
 
-function Write-InlineProgress
-{
+function Write-InlineProgress {
     param(
         [Parameter(Mandatory)]
         [string]$Label,
@@ -150,48 +158,40 @@ function Write-InlineProgress
     )
 
     $fraction = 0.0
-    if ($Total -gt 0)
-    {
+    if ($Total -gt 0) {
         $fraction = [math]::Min(1.0, $Current / $Total)
     }
 
     $filled = [int][math]::Floor($fraction * $Width)
-    if ($filled -gt $Width)
-    { $filled = $Width
-    }
+    if ($filled -gt $Width) { $filled = $Width }
     $bar = ('#' * $filled).PadRight($Width, ' ')
 
-    $speedText = if ($BytesPerSecond -gt 0)
-    { "$(Format-ByteSize $BytesPerSecond)/s"
-    } else
-    { '--/s'
-    }
+    $speedText = if ($BytesPerSecond -gt 0) { "$(Format-ByteSize $BytesPerSecond)/s" } else { '--/s' }
 
-    if ($Total -gt 0)
-    {
+    if ($Total -gt 0) {
         $percentText = "{0,3:N0}%" -f ($fraction * 100)
         $sizeText = "$(Format-ByteSize $Current) / $(Format-ByteSize $Total)"
         $line = "  $Label [$bar] $percentText  $sizeText  $speedText"
-    } else
-    {
+    }
+    else {
         $line = "  $Label [$bar]  $(Format-ByteSize $Current)  $speedText"
     }
 
     Write-Host "`r$($line.PadRight(100))" -NoNewline
 }
 
-function Complete-InlineProgress
-{
+function Complete-InlineProgress {
     Write-Host ''
 }
 
 
 # ------------------------------------------------------------------------
-# Retry helpers.
+# Retry helpers to handle slow connections
+# and "file in use" error while cleaning up a temp folder
+#(typically antivirus briefly locking a just-extracted .bat/.exe)
 # ------------------------------------------------------------------------
 
-function Invoke-WithRetry
-{
+function Invoke-WithRetry {
     param(
         [Parameter(Mandatory)]
         [scriptblock]$Action,
@@ -201,15 +201,12 @@ function Invoke-WithRetry
         [string]$DisplayName = 'operation'
     )
 
-    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++)
-    {
-        try
-        {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
             return & $Action
-        } catch
-        {
-            if ($attempt -ge $MaxAttempts)
-            {
+        }
+        catch {
+            if ($attempt -ge $MaxAttempts) {
                 throw
             }
 
@@ -219,8 +216,7 @@ function Invoke-WithRetry
     }
 }
 
-function Remove-ItemRobust
-{
+function Remove-ItemRobust {
     param(
         [Parameter(Mandatory)]
         [string]$Path,
@@ -229,21 +225,17 @@ function Remove-ItemRobust
         [int]$MaxAttempts = 6
     )
 
-    if (-not (Test-Path -LiteralPath $Path))
-    {
+    if (-not (Test-Path -LiteralPath $Path)) {
         return
     }
 
-    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++)
-    {
-        try
-        {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
             Remove-Item -LiteralPath $Path -Recurse:$Recurse -Force -ErrorAction Stop
             return
-        } catch
-        {
-            if ($attempt -eq $MaxAttempts)
-            {
+        }
+        catch {
+            if ($attempt -eq $MaxAttempts) {
                 Write-Result "Could not remove temporary file(s): $Path (still in use, likely by antivirus). You can delete it manually later." -Type Warning
                 return
             }
@@ -258,8 +250,7 @@ function Remove-ItemRobust
 # Install path handling
 # ------------------------------------------------------------------------
 
-function Get-InstallPath
-{
+function Get-InstallPath {
     Write-Host "Installation directory" -ForegroundColor White
     Write-Host "Press Enter to use the default (current directory):"
     Write-Host "  $DefaultInstallPath" -ForegroundColor DarkGray
@@ -267,43 +258,42 @@ function Get-InstallPath
 
     $inputPath = Read-Host 'Path'
 
-    if ([string]::IsNullOrWhiteSpace($inputPath))
-    {
+    if ([string]::IsNullOrWhiteSpace($inputPath)) {
         return $DefaultInstallPath
     }
 
     return [Environment]::ExpandEnvironmentVariables($inputPath.Trim().Trim('"'))
 }
 
-function Confirm-InstallPath
-{
+function Confirm-InstallPath {
     param([string]$Path)
 
-    if (Test-Path -LiteralPath $Path -PathType Leaf)
-    {
+    # Install and update share the same target-directory shape: the only
+    # thing that would make this path unusable is if it already points to a
+    # file. An existing, non-empty directory is fine -- every component
+    # below re-downloads and overwrites its own files regardless of whether
+    # this is a fresh install or a repeat run.
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
         throw "The installation path points to a file: $Path"
-    }
-
-    if (-not (Test-Path -LiteralPath $Path))
-    {
-        return
-    }
-
-    $children = @(Get-ChildItem -LiteralPath $Path -Force)
-
-    if ($children.Count -gt 0)
-    {
-        throw "The installation directory already exists and is not empty. This installer does not update existing installations: $Path"
     }
 }
 
 
 # ------------------------------------------------------------------------
 # Downloading
+#
+# Invoke-Download is used for every remote file.
+# It streams to disk with an in-place progress bar, and is resilient on
+# slow/unstable connections:
+#
+#   - The HttpClient-wide timeout is disabled (default is only 100 seconds,
+#     which would abort a big archive on a slow line even though it is
+#     downloading fine).
+#   - A sliding per-read "stall" timeout aborts and retries only if no bytes
+#     arrive for a while, rather than hanging forever on a dead connection.
+#   - The whole download is retried with backoff a few times on failure.
 # ------------------------------------------------------------------------
-
-function Invoke-Download
-{
+function Invoke-Download {
     param(
         [Parameter(Mandatory)]
         [string]$Uri,
@@ -316,22 +306,19 @@ function Invoke-Download
         [int]$StallTimeoutSeconds = 30
     )
 
-    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++)
-    {
-        try
-        {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
             Invoke-DownloadAttempt `
                 -Uri $Uri `
                 -Destination $Destination `
                 -DisplayName $DisplayName `
                 -StallTimeoutSeconds $StallTimeoutSeconds
             return
-        } catch
-        {
+        }
+        catch {
             Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
 
-            if ($attempt -ge $MaxAttempts)
-            {
+            if ($attempt -ge $MaxAttempts) {
                 throw "Failed to download $DisplayName after $MaxAttempts attempts: $($_.Exception.Message)"
             }
 
@@ -343,8 +330,7 @@ function Invoke-Download
     }
 }
 
-function Invoke-DownloadAttempt
-{
+function Invoke-DownloadAttempt {
     param(
         [Parameter(Mandatory)]
         [string]$Uri,
@@ -363,8 +349,7 @@ function Invoke-DownloadAttempt
 
     $cts = [System.Threading.CancellationTokenSource]::new()
 
-    try
-    {
+    try {
         # Give the initial request (headers) a bounded amount of time; the
         # per-chunk stall timeout below takes over once the body starts.
         $cts.CancelAfter([TimeSpan]::FromSeconds($StallTimeoutSeconds))
@@ -378,15 +363,12 @@ function Invoke-DownloadAttempt
         $response.EnsureSuccessStatusCode() | Out-Null
 
         $total = $response.Content.Headers.ContentLength
-        if ($null -eq $total)
-        { $total = 0
-        }
+        if ($null -eq $total) { $total = 0 }
 
         $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
         $fileStream = [System.IO.File]::Create($Destination)
 
-        try
-        {
+        try {
             $buffer = [byte[]]::new(256KB)
             $downloaded = 0L
 
@@ -398,8 +380,7 @@ function Invoke-DownloadAttempt
 
             Write-InlineProgress -Label $DisplayName -Current 0 -Total $total -BytesPerSecond 0
 
-            while ($true)
-            {
+            while ($true) {
                 # Reset the sliding stall timer on every read; this only
                 # fires if no data at all arrives within the window, not
                 # because the overall download is merely slow.
@@ -407,24 +388,20 @@ function Invoke-DownloadAttempt
 
                 $read = $stream.ReadAsync($buffer, 0, $buffer.Length, $cts.Token).GetAwaiter().GetResult()
 
-                if ($read -le 0)
-                { break
-                }
+                if ($read -le 0) { break }
 
                 $fileStream.Write($buffer, 0, $read)
                 $downloaded += $read
 
                 $elapsed = $stopwatch.Elapsed.TotalSeconds
 
-                if (($elapsed - $lastSampleSeconds) -ge 0.5)
-                {
+                if (($elapsed - $lastSampleSeconds) -ge 0.5) {
                     $speed = ($downloaded - $lastSampleBytes) / [math]::Max(0.001, ($elapsed - $lastSampleSeconds))
                     $lastSampleSeconds = $elapsed
                     $lastSampleBytes = $downloaded
                 }
 
-                if (($elapsed - $lastDrawSeconds) -ge 0.1)
-                {
+                if (($elapsed - $lastDrawSeconds) -ge 0.1) {
                     Write-InlineProgress -Label $DisplayName -Current $downloaded -Total $total -BytesPerSecond $speed
                     $lastDrawSeconds = $elapsed
                 }
@@ -433,14 +410,14 @@ function Invoke-DownloadAttempt
             $finalTotal = [math]::Max($total, $downloaded)
             Write-InlineProgress -Label $DisplayName -Current $downloaded -Total $finalTotal -BytesPerSecond $speed
             Complete-InlineProgress
-        } finally
-        {
+        }
+        finally {
             $fileStream.Dispose()
             $stream.Dispose()
             $response.Dispose()
         }
-    } finally
-    {
+    }
+    finally {
         $cts.Dispose()
         $client.Dispose()
         $handler.Dispose()
@@ -451,8 +428,7 @@ function Invoke-DownloadAttempt
 # mpv release resolution and installation
 # ------------------------------------------------------------------------
 
-function Get-LatestMpvRelease
-{
+function Get-LatestMpvRelease {
     Write-Host '  Checking latest mpv release...' -ForegroundColor Gray
 
     $response = Invoke-WithRetry -DisplayName 'Checking mpv release' -Action {
@@ -461,16 +437,14 @@ function Get-LatestMpvRelease
 
     $version = $response.tag_name
 
-    if ($version -notmatch '^v\d+\.\d+\.\d+$')
-    {
+    if ($version -notmatch '^v\d+\.\d+\.\d+$') {
         throw "Unexpected mpv release tag: $version"
     }
 
     $assetName = "mpv-$version-x86_64-pc-windows-msvc.zip"
     $asset = @($response.assets | Where-Object { $_.name -eq $assetName })[0]
 
-    if ($null -eq $asset)
-    {
+    if ($null -eq $asset) {
         throw "Could not find the expected Windows asset '$assetName'."
     }
 
@@ -481,8 +455,7 @@ function Get-LatestMpvRelease
     }
 }
 
-function Expand-MpvArchive
-{
+function Expand-MpvArchive {
     param(
         [string]$ArchivePath,
         [string]$Destination
@@ -491,45 +464,41 @@ function Expand-MpvArchive
     $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "mpv-install-$([guid]::NewGuid())"
     New-Item -ItemType Directory -Path $tempDirectory -Force | Out-Null
 
-    try
-    {
+    try {
         Expand-Archive -LiteralPath $ArchivePath -DestinationPath $tempDirectory -Force
 
         # Current MSVC releases put the mpv files at the archive root.
         # This also handles a single top-level directory defensively.
         $entries = @(Get-ChildItem -LiteralPath $tempDirectory -Force)
 
-        if ($entries.Count -eq 1 -and $entries[0].PSIsContainer)
-        {
+        if ($entries.Count -eq 1 -and $entries[0].PSIsContainer) {
             $sourceRoot = $entries[0].FullName
-        } else
-        {
+        }
+        else {
             $sourceRoot = $tempDirectory
         }
 
         $files = @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File)
         $totalFiles = $files.Count
         $totalBytes = ($files | Measure-Object -Property Length -Sum).Sum
-        if (-not $totalBytes)
-        { $totalBytes = 0
-        }
+        if (-not $totalBytes) { $totalBytes = 0 }
 
         $copiedBytes = 0L
         $copiedFiles = 0
         $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         $lastDrawSeconds = -1.0
 
-        foreach ($file in $files)
-        {
+        foreach ($file in $files) {
             $relative = $file.FullName.Substring($sourceRoot.Length).TrimStart('\', '/')
             $destinationPath = Join-Path $Destination $relative
             $destinationDirectory = Split-Path -Parent $destinationPath
 
-            if (-not (Test-Path -LiteralPath $destinationDirectory))
-            {
+            if (-not (Test-Path -LiteralPath $destinationDirectory)) {
                 New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
             }
 
+            # -Force-equivalent overwrite: this is what lets -Only Mpv
+            # replace an existing installation's files in place.
             [System.IO.File]::Copy($file.FullName, $destinationPath, $true)
 
             $copiedBytes += $file.Length
@@ -538,36 +507,30 @@ function Expand-MpvArchive
             $elapsed = $stopwatch.Elapsed.TotalSeconds
             $isLast = $copiedFiles -eq $totalFiles
 
-            if (($elapsed - $lastDrawSeconds) -ge 0.1 -or $isLast)
-            {
-                $speed = if ($elapsed -gt 0)
-                { $copiedBytes / $elapsed
-                } else
-                { 0
-                }
+            if (($elapsed - $lastDrawSeconds) -ge 0.1 -or $isLast) {
+                $speed = if ($elapsed -gt 0) { $copiedBytes / $elapsed } else { 0 }
                 Write-InlineProgress -Label "Installing mpv ($copiedFiles/$totalFiles files)" -Current $copiedBytes -Total $totalBytes -BytesPerSecond $speed
                 $lastDrawSeconds = $elapsed
             }
         }
 
         Complete-InlineProgress
-    } finally
-    {
+    }
+    finally {
         Remove-ItemRobust -Path $tempDirectory -Recurse
     }
 }
 
-function Invoke-UoscInstaller
-{
+function Invoke-UoscInstaller {
     param([string]$InstallDirectory)
 
     # The official installer detects portable_config when run from an mpv
-    # installation directory. Run it in a separate PowerShell process so its
-    # Exit 1 on failure cannot terminate this installer itself.
+    # installation directory, and is itself safe to re-run
+    # Runnig it in a separate PowerShell process so its Exit 1 on failure
+    # cannot terminate this installer itself.
     $installerPath = Join-Path $env:TEMP "uosc-installer-$([guid]::NewGuid()).ps1"
 
-    try
-    {
+    try {
         Invoke-Download `
             -Uri $UoscInstallerUrl `
             -Destination $installerPath `
@@ -575,62 +538,33 @@ function Invoke-UoscInstaller
 
         Push-Location -LiteralPath $InstallDirectory
 
-        try
-        {
+        try {
             & pwsh -NoProfile -ExecutionPolicy Bypass -File $installerPath
 
-            if ($LASTEXITCODE -ne 0)
-            {
+            if ($LASTEXITCODE -ne 0) {
                 throw "The official uosc installer exited with code $LASTEXITCODE."
             }
-        } finally
-        {
+        }
+        finally {
             Pop-Location
         }
-    } finally
-    {
+    }
+    finally {
         Remove-ItemRobust -Path $installerPath
     }
 }
 
 
-
 # ------------------------------------------------------------------------
-# Main
+# Component installers
+#
+# Each of these is independently re-runnable via -Only: they always fetch
+# the latest available version of whatever they touch and overwrite in
+# place, with no version comparison and no state left behind to track it.
 # ------------------------------------------------------------------------
 
-try
-{
-    Write-Header 'MPV CONFIG INSTALLER'
-
-    Write-Host 'This installer creates a new portable mpv installation.'
-    Write-Host 'It will not update or modify an existing non-empty installation.'
-    Write-Host ''
-
-    $InstallDirectory = Get-InstallPath
-    $InstallDirectory = [System.IO.Path]::GetFullPath($InstallDirectory)
-
-    Write-Host ''
-    Write-Host "Install path:" -ForegroundColor DarkGray
-    Write-Host "  $InstallDirectory" -ForegroundColor White
-
-    Confirm-InstallPath -Path $InstallDirectory
-
-    Write-Step 'Preparing installation directory'
-
-    if (-not (Test-Path -LiteralPath $InstallDirectory))
-    {
-        New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
-        Write-Result "Created $InstallDirectory"
-    } else
-    {
-        Write-Result 'Installation directory already exists and is empty.'
-    }
-
-    $PortableConfig = Join-Path $InstallDirectory 'portable_config'
-    New-Item -ItemType Directory -Path $PortableConfig -Force | Out-Null
-
-    Write-Result 'Created portable_config'
+function Install-MpvComponent {
+    param([string]$InstallDirectory)
 
     Write-Step 'Downloading mpv'
 
@@ -659,60 +593,70 @@ try
 
     Remove-ItemRobust -Path $mpvArchive
 
+    return $mpvRelease
+}
+
+function Install-ScriptsComponent {
+    param(
+        [string]$InstallDirectory,
+        [string]$ScriptsDirectory,
+        [string]$ScriptOptsDirectory
+    )
+
     Write-Step 'Installing uosc'
 
     Invoke-UoscInstaller -InstallDirectory $InstallDirectory
     Write-Result 'Installed uosc using the official installer'
 
-    $ScriptsDirectory = Join-Path $PortableConfig 'scripts'
-    $ScriptOptsDirectory = Join-Path $PortableConfig 'script-opts'
-
-    New-Item -ItemType Directory -Path $ScriptsDirectory -Force | Out-Null
-    New-Item -ItemType Directory -Path $ScriptOptsDirectory -Force | Out-Null
-
     Write-Step 'Installing third-party scripts'
 
-    $deleteScript = Join-Path $ScriptsDirectory 'delete_current_file.lua'
     Invoke-Download `
         -Uri $DeleteScriptUrl `
-        -Destination $deleteScript `
+        -Destination (Join-Path $ScriptsDirectory 'delete_current_file.lua') `
         -DisplayName 'delete_current_file.lua'
     Write-Result 'Installed delete_current_file.lua'
 
-    $thumbfastScript = Join-Path $ScriptsDirectory 'thumbfast.lua'
     Invoke-Download `
         -Uri $ThumbfastScriptUrl `
-        -Destination $thumbfastScript `
+        -Destination (Join-Path $ScriptsDirectory 'thumbfast.lua') `
         -DisplayName 'thumbfast.lua'
     Write-Result 'Installed thumbfast.lua'
 
-    $keybindVisualizerScript = Join-Path $ScriptsDirectory 'keybind-visualizer.lua'
     Invoke-Download `
         -Uri $KeybindVisualizerScriptUrl `
-        -Destination $keybindVisualizerScript `
+        -Destination (Join-Path $ScriptsDirectory 'keybind-visualizer.lua') `
         -DisplayName 'keybind-visualizer.lua'
     Write-Result 'Installed keybind-visualizer.lua'
 
-    $SubSeekScript = Join-Path $ScriptsDirectory 'sub-seek.lua'
     Invoke-Download `
         -Uri $SubSeekScriptURL `
-        -Destination $SubSeekScript `
+        -Destination (Join-Path $ScriptsDirectory 'sub-seek.lua') `
         -DisplayName 'sub-seek.lua'
     Write-Result 'Installed sub-seek.lua'
 
-    $YtdlAutoFormatScript = Join-Path $ScriptsDirectory 'ytdlautoformat.lua'
     Invoke-Download `
         -Uri $YtdlAutoFormatScriptURL `
-        -Destination $YtdlAutoFormatScript `
+        -Destination (Join-Path $ScriptsDirectory 'ytdlautoformat.lua') `
         -DisplayName 'ytdlautoformat.lua'
     Write-Result 'Installed ytdlautoformat.lua'
 
-    $YtSubScript = Join-Path $ScriptsDirectory 'ytsub.lua'
     Invoke-Download `
         -Uri $YtSubScriptUrl `
-        -Destination $YtSubScript `
+        -Destination (Join-Path $ScriptsDirectory 'ytsub.lua') `
         -DisplayName 'ytsub.lua'
     Write-Result 'Installed ytsub.lua'
+
+    # Not this repo's own config: it's keybind-visualizer's companion data
+    # file, sourced from the same upstream repo as the script itself.
+    Invoke-Download `
+        -Uri $KeybindVisualizerJsonUrl `
+        -Destination (Join-Path $ScriptOptsDirectory 'keybind-visualizer-layouts.json') `
+        -DisplayName 'keybind-visualizer-layouts.json'
+    Write-Result 'Installed keybind-visualizer-layouts.json'
+}
+
+function Install-ConfigComponent {
+    param([string]$PortableConfig, [string]$ScriptOptsDirectory)
 
     Write-Step 'Installing configuration'
 
@@ -740,33 +684,84 @@ try
         -DisplayName 'thumbfast.conf'
     Write-Result 'Installed thumbfast.conf'
 
-    $keybindVisualizerConfig = Join-Path $ScriptOptsDirectory 'keybind-visualizer.conf'
     Invoke-Download `
         -Uri $KeybindVisualizerConfigUrl `
-        -Destination $keybindVisualizerConfig `
+        -Destination (Join-Path $ScriptOptsDirectory 'keybind-visualizer.conf') `
         -DisplayName 'keybind-visualizer.conf'
     Write-Result 'Installed keybind-visualizer.conf'
 
-    $keybindVisualizerJson = Join-Path $ScriptOptsDirectory 'keybind-visualizer-layouts.json'
-    Invoke-Download `
-        -Uri $KeybindVisualizerJsonUrl `
-        -Destination $keybindVisualizerJson `
-        -DisplayName 'keybind-visualizer-layouts.json'
-    Write-Result 'Installed keybind-visualizer-layouts.json'
-
-    $YtdlAutoFormatConfig = Join-Path $ScriptOptsDirectory 'ytdlautoformat.conf'
     Invoke-Download `
         -Uri $YtdlAutoFormatConfigURL `
-        -Destination $YtdlAutoFormatConfig `
+        -Destination (Join-Path $ScriptOptsDirectory 'ytdlautoformat.conf') `
         -DisplayName 'ytdlautoformat.conf'
     Write-Result 'Installed ytdlautoformat.conf'
 
-    $YtSubConfig = Join-Path $ScriptOptsDirectory 'ytsub.conf'
     Invoke-Download `
         -Uri $YtSubConfigUrl `
-        -Destination $YtSubConfig `
+        -Destination (Join-Path $ScriptOptsDirectory 'ytsub.conf') `
         -DisplayName 'ytsub.conf'
     Write-Result 'Installed ytsub.conf'
+}
+
+
+# ------------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------------
+
+try {
+    Write-Header 'MPV CONFIG INSTALLER'
+
+    Write-Host 'This installer creates or updates a portable mpv installation.'
+    Write-Host "Components to (re)install: $($Only -join ', ')"
+    Write-Host ''
+
+    $InstallDirectory = Get-InstallPath
+    $InstallDirectory = [System.IO.Path]::GetFullPath($InstallDirectory)
+
+    Write-Host ''
+    Write-Host "Install path:" -ForegroundColor DarkGray
+    Write-Host "  $InstallDirectory" -ForegroundColor White
+
+    Confirm-InstallPath -Path $InstallDirectory
+
+    Write-Step 'Preparing installation directory'
+
+    if (-not (Test-Path -LiteralPath $InstallDirectory)) {
+        New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
+        Write-Result "Created $InstallDirectory"
+    }
+    else {
+        Write-Result 'Installation directory already exists.'
+    }
+
+    $PortableConfig = Join-Path $InstallDirectory 'portable_config'
+    $ScriptsDirectory = Join-Path $PortableConfig 'scripts'
+    $ScriptOptsDirectory = Join-Path $PortableConfig 'script-opts'
+
+    New-Item -ItemType Directory -Path $PortableConfig -Force | Out-Null
+    New-Item -ItemType Directory -Path $ScriptsDirectory -Force | Out-Null
+    New-Item -ItemType Directory -Path $ScriptOptsDirectory -Force | Out-Null
+
+    Write-Result 'Directory layout ready'
+
+    $mpvRelease = $null
+
+    if ($Only -contains 'Mpv') {
+        $mpvRelease = Install-MpvComponent -InstallDirectory $InstallDirectory
+    }
+
+    if ($Only -contains 'Scripts') {
+        Install-ScriptsComponent `
+            -InstallDirectory $InstallDirectory `
+            -ScriptsDirectory $ScriptsDirectory `
+            -ScriptOptsDirectory $ScriptOptsDirectory
+    }
+
+    if ($Only -contains 'Config') {
+        Install-ConfigComponent `
+            -PortableConfig $PortableConfig `
+            -ScriptOptsDirectory $ScriptOptsDirectory
+    }
 
     Write-Header 'INSTALLATION COMPLETE'
 
@@ -776,13 +771,33 @@ try
     Write-Host 'Launch:' -ForegroundColor White
     Write-Host "  $([System.IO.Path]::Combine($InstallDirectory, 'mpv.exe'))" -ForegroundColor Gray
     Write-Host ''
-    Write-Host "mpv       $($mpvRelease.Version)" -ForegroundColor Gray
-    Write-Host 'uosc      installed' -ForegroundColor Gray
-    Write-Host 'thumbfast installed' -ForegroundColor Gray
-    Write-Host 'config    installed' -ForegroundColor Gray
+
+    if ($Only -contains 'Mpv') {
+        Write-Host "mpv       $($mpvRelease.Version)" -ForegroundColor Gray
+    }
+    else {
+        Write-Host 'mpv       not touched (use -Only Mpv to update)' -ForegroundColor Gray
+    }
+
+    if ($Only -contains 'Scripts') {
+        Write-Host 'scripts   installed' -ForegroundColor Gray
+    }
+    else {
+        Write-Host 'scripts   not touched (use -Only Scripts to update)' -ForegroundColor Gray
+    }
+
+    if ($Only -contains 'Config') {
+        Write-Host 'config    installed' -ForegroundColor Gray
+    }
+    else {
+        Write-Host 'config    not touched (use -Only Config to update)' -ForegroundColor Gray
+    }
+
     Write-Host ''
-} catch
-{
+
+    Read-Host 'Press Enter to exit'
+}
+catch {
     Write-Host ''
     Write-Host ('=' * 60) -ForegroundColor Red
     Write-Host '  INSTALLATION FAILED' -ForegroundColor Red
@@ -792,4 +807,5 @@ try
     Write-Host ''
     Write-Host 'No automatic cleanup was performed so you can inspect the installation directory.' -ForegroundColor Yellow
     Write-Host ''
+    exit 1
 }
