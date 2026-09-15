@@ -20,10 +20,31 @@ winget install -e --id yt-dlp.yt-dlp
 
 ## Install
 
-Windows, PowerShell 7+
+*Windows, PowerShell 7+*
 
+### Install or Update:
 ```powershell
 irm https://raw.githubusercontent.com/DevBehnam/mpv-config/main/install.ps1 | iex
+```
+Running this on existing installation will update and replace every component (mpv, scripts, config) with the latest version.
+
+
+### Updating just one component
+
+Use `-Only` to reinstall a subset: `Mpv`, `Scripts`, or `Config` (comma-separated to combine).
+
+```powershell
+# Update just the mpv binary
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/DevBehnam/mpv-config/main/install.ps1))) -Only Mpv
+
+# Update all scripts (uosc, thumbfast, delete_current_file, etc.)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/DevBehnam/mpv-config/main/install.ps1))) -Only Scripts
+
+# Update configs from the repo
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/DevBehnam/mpv-config/main/install.ps1))) -Only Config
+
+# Combine as needed
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/DevBehnam/mpv-config/main/install.ps1))) -Only Scripts,Config
 ```
 
 ## Credits
